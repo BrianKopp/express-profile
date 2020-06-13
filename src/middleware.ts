@@ -38,7 +38,11 @@ export const exposeProfiler = (options: ExpressProfileOptions) => {
         || (options.authHeaderName && options.authHeaderValue)
         || (typeof options.authCustomFn === 'function' && options.authCustomFn)
     ) {
-        logger.debug('auth mode specified');
+        logger.debug('auth mode specified', {
+            skip: options.authSkip,
+            header: options.authHeaderName,
+            useFunction: options.authCustomFn ? true : false
+        });
     } else {
         logger.error('auth is invalid, must specify authSkip OR both authHeaderName+authHeaderValue' +
             ' or pass an authCustomFn function', { options });
@@ -46,13 +50,20 @@ export const exposeProfiler = (options: ExpressProfileOptions) => {
     }
 
     return (req: Request, res: Response, nxt: NextFunction) => {
-        if (req.path !== options.cpuProfilePath || req.path !== options.heapSnapshotPath) {
+        if (req.path !== options.cpuProfilePath && req.path !== options.heapSnapshotPath) {
+            logger.silly('did not use profiler middleware for path', { path: req.path });
             nxt();
             return;
         }
 
         // check if the request is authenticated
         new Promise<void>((resolve, reject) => {
+            if (options.authSkip) {
+                logger.debug('no authentication required since authSkip=true');
+                resolve();
+                return;
+            }
+
             // check via headers
             if (
                 !options.authSkip
@@ -62,18 +73,27 @@ export const exposeProfiler = (options: ExpressProfileOptions) => {
                 && req.headers[options.authHeaderName]
                 && req.headers[options.authHeaderName] === options.authHeaderValue
             ) {
+                logger.debug('did not pass authentication', {
+                    skip: options.authSkip,
+                    authHeaderName: options.authHeaderName || 'undefined'
+                });
                 resolve();
                 return;
             }
+
             if (!options.authSkip && options.authCustomFn && typeof options.authCustomFn === 'function') {
                 options.authCustomFn(req, (err) => {
                     if (err) {
-                        reject();
+                        logger.verbose('auth custom function failed', { error: err });
+                        reject(err);
                     } else {
                         resolve();
                     }
                 });
+                return;
             }
+
+            reject(new Error('unexpected settings'));
         }).then(() => {
             if (req.path === options.cpuProfilePath) {
                 // check if request includes duration

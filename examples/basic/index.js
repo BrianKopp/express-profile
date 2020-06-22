@@ -1,8 +1,16 @@
 const app = require('express')();
 const { exposeProfiler } = require('../..');
 const { format, transports, createLogger } = require('winston');
-const path = require('path');
-const fs = require('fs');
+const crypto = require('crypto');
+
+const doCpuIntensiveThing = () => {
+    const bytes = crypto.randomBytes(100000).toString('hex');
+    const hasher = crypto.createHash('md5');
+    hasher.update(bytes);
+    hasher.digest().toString('hex');
+    setTimeout(doCpuIntensiveThing, 1);
+};
+doCpuIntensiveThing();
 
 app.use(exposeProfiler({
     authSkip: true,
@@ -13,13 +21,6 @@ app.use(exposeProfiler({
         transports: [new transports.Console()]
     })
 }));
-
-app.get('/data', (req, res) => {
-    console.log('hit data route');
-    const data = fs.readFileSync('./data.cpuprofile');
-    const dataJs = JSON.parse(data);
-    res.json(dataJs);
-});
 
 const server = app.listen(3000, (err) => {
     if (err) {
